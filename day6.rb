@@ -4,17 +4,7 @@ class Submarine
   attr_reader :fishes
 
   def initialize
-    @fishes = {
-      0 => 0,
-      1 => 0,
-      2 => 0,
-      3 => 0,
-      4 => 0,
-      5 => 0,
-      6 => 0,
-      7 => 0,
-      8 => 0,
-    }
+    @fishes = Array.new(9, 0)
   end
 
   def add_fishes(*fishes)
@@ -36,7 +26,7 @@ class Submarine
   end
 
   def num_fishes
-    @fishes.values.sum
+    @fishes.sum
   end
 end
 
