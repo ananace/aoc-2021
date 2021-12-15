@@ -1,17 +1,9 @@
 #!/bin/env ruby
 
-Point = Struct.new(:x, :y, :risk)
-AStarPoint = Struct.new(:x, :y, :g, :h, :parent) do
-  def f
-    self.g + self.h
-  end
+require 'set'
 
-  def replace(node)
-    g = node.g
-    h = node.h
-    parent = node.parent
-  end
-end
+Point = Struct.new(:x, :y, :risk)
+PathPoint = Struct.new(:x, :y)
 
 class Submarine
   attr_reader :size
@@ -35,70 +27,42 @@ class Submarine
     @size[:y] *= 5
   end
 
-  def find_path(from = Point.new(0, 0, 0), to = Point.new(@size[:x] - 1, @size[:y] - 1, 0))
-    open = [AStarPoint.new(from.x, from.y, 0, 0, nil)]
-    closed = []
+  CONNECTIONS = [[-1, 0], [1, 0], [0, -1], [0, 1]].freeze
+  def find_path(from = PathPoint.new(0, 0), to = PathPoint.new(@size[:x] - 1, @size[:y] - 1))
+    costs = { PathPoint.new(from.x, from.y) => 0 }
+    visited = Set.new
 
-    until open.empty?
-      open.sort! { |a, b| a.f <=> b.f }
-      node = open.shift
+    found = false
+    until found
+      point, cost = costs.min_by(&:last)
+      visited.add(point)
 
-      closed << node
+      CONNECTIONS.map { |x, y| PathPoint.new(point.x + x, point.y + y) }.each do |to_visit|
+        next if to_visit.x < 0 || to_visit.y < 0 || to_visit.x >= @size[:x] || to_visit.y >= @size[:y]
+        next if visited.include? to_visit
 
-      if node.x == to.x && node.y == to.y
-        open.clear
-        break
+        to_visit_cost = cost + get_risk(to_visit)
+        costs[to_visit] = [costs.fetch(to_visit, to_visit_cost), to_visit_cost].min
+        found ||= to_visit == to
       end
 
-      possible = []
-      possible << AStarPoint.new(node.x - 1, node.y, node.g + get_point(node.x - 1, node.y).risk, estimate_distance(node, to), node) if node.x > 1
-      possible << AStarPoint.new(node.x + 1, node.y, node.g + get_point(node.x + 1, node.y).risk, estimate_distance(node, to), node) if node.x < @size[:x] - 1
-      possible << AStarPoint.new(node.x, node.y - 1, node.g + get_point(node.x, node.y - 1).risk, estimate_distance(node, to), node) if node.y > 1
-      possible << AStarPoint.new(node.x, node.y + 1, node.g + get_point(node.x, node.y + 1).risk, estimate_distance(node, to), node) if node.y < @size[:y] - 1
-
-      possible.each do |successor|
-        next if open.find { |n| n.x == successor.x && n.y == successor.y } # && n.f < successor.f }
-        next if closed.find { |n| n.x == successor.x && n.y == successor.y && n.f < successor.f }
-
-        open << successor
-      end
-
-      # existing = closed.find { |n| n.x == node.x && n.y == node.y }
-      # existing&.replace(node)
-      
-      closed << node
+      costs.delete point
     end
 
-    closed.last
+    return costs[to]
   end
 
-  def get_nodes(endpoint)
-    nodes = []
-    if endpoint
-      at = endpoint
-      until at.nil?
-        nodes << get_point(at.x, at.y)
-        at = at.parent
-      end
-    end
-
-    nodes.reverse
-  end
-
-  def puts_map(endpoint = nil)
-    hilight = []
-    hilight = get_nodes(endpoint) if endpoint
-
+  def puts_map
     @size[:y].times do |y|
       @size[:x].times do |x|
-        if hilight.any? { |p| p.x == x && p.y == y }
-          print "\e[1;37m"
-        end
         print get_point(x, y).risk
-        print "\e[0m"
       end
       puts
     end
+  end
+
+  def get_risk(point)
+    get_point(point.x, point.y).risk
   end
 
   def get_point(x, y)
@@ -122,12 +86,6 @@ class Submarine
     end
     Point.new(rx, ry, risk)
   end
-
-  private
-
-  def estimate_distance(from, to)
-    ((from.x - to.x).abs + (from.y - to.y).abs) / 2
-  end
 end
 
 sub = Submarine.new
@@ -137,22 +95,14 @@ end
 
 puts "Finding path on a #{sub.size[:x]}, #{sub.size[:y]} map..."
 # sub.puts_map
-path = sub.find_path
-# puts
-# puts "Found path:"
-# sub.puts_map(path)
 
-cost = sub.get_nodes(path).map { |n| n.risk }.sum - sub.get_point(0, 0).risk
+cost = sub.find_path
 puts "Result: #{cost}"
 
 sub.expand_map
 
 puts "Finding path on a #{sub.size[:x]}, #{sub.size[:y]} map..."
 # sub.puts_map
-path = sub.find_path
-# puts
-# puts "Found path:"
-# sub.puts_map(path)
 
-cost = sub.get_nodes(path).map { |n| n.risk }.sum - sub.get_point(0, 0).risk
+cost = sub.find_path
 puts "Result: #{cost}"
