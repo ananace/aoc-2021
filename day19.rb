@@ -15,6 +15,12 @@ Point = Struct.new(:x, :y, :z) do
     Point.new(x - other.x, y - other.y, z - other.z)
   end
 
+  def distance(other)
+    raise ArgumentError, 'Not a point' unless other.is_a? Point
+
+    (x - other.x).abs + (y - other.y).abs + (z - other.z).abs
+  end
+
   def to_s
     "[#{x}, #{y}, #{z}]"
   end
@@ -26,19 +32,21 @@ end
 
 class Scanner
   attr_accessor :rotation, :position
-  attr_reader :beacons
+  attr_reader :beacons, :beacon_distances
 
   def initialize(beacons)
     @beacons = beacons
     @rotation = 0
     @position = nil
+
+    calculate_distances!
   end
 
   def stable?
     !@position.nil?
   end
 
-  def beacons_relative_to(point)
+  def beacons_relative_to(point, beacons = @beacons)
     raise ArgumentError, 'Not a point' unless point.is_a? Point
 
     transform = proc do |b|
@@ -79,9 +87,18 @@ class Scanner
       end
     end
 
-    @beacons.map do |b|
+    beacons.map do |b|
       point + transform.call(b)
     end
+  end
+
+  private
+
+  def calculate_distances!
+    return @beacon_distances if @beacon_distances
+
+    distances = @beacons.product(@beacons).reject { |a, b| a == b }.group_by { |a, b| a.distance(b) }
+    @beacon_distances = distances.to_h
   end
 end
 
@@ -132,27 +149,44 @@ class Submarine
   def stabilize_one(stabilized, to_stabilize)
     to_stabilize.each do |scanner|
       stabilized.each do |source|
-        source_beacons = source.beacons_relative_to(source.position)
+        common = scanner.beacon_distances.keys & source.beacon_distances.keys
+        next if common.empty?
 
-        source_beacons.each do |point|
-          48.times do |rotation|
-            scanner.rotation = rotation
+        s_c = source.beacons_relative_to(source.position)
+        common.each do |distance|
+          source_pairs = source.beacon_distances[distance]
+          target_pairs = scanner.beacon_distances[distance]
 
-            scanner.beacons_relative_to(Point.root).each do |testpoint|
-              mid = point - testpoint
+          source_pairs.each do |pair|
+            source_beacons = source.beacons_relative_to(source.position, pair)
 
-              test_beacons = scanner.beacons_relative_to(mid)
-              next unless (test_beacons & source_beacons).size >= 12 # Base on a large number to be on the safe side
+            source_beacons.each do |point|
+              48.times do |rotation|
+                scanner.rotation = rotation
 
-              scanner.position = mid
-              return scanner
+                target_pairs.each do |t_pair|
+                  scanner.beacons_relative_to(Point.root, t_pair).each do |test|
+                    mid = point - test
+
+                    # Exit early if not even the relatively tiny testing corpus of points part of equidistant pairs matches
+                    target_beacons = scanner.beacons_relative_to(mid, t_pair)
+                    next if (target_beacons - source_beacons).any?
+
+                    t_c = scanner.beacons_relative_to(mid)
+                    next if (t_c & s_c).size < 12
+
+                    scanner.position = mid
+                    return scanner
+                  end
+                end
+              end
             end
           end
         end
       end
     end
 
-    raise 'Unable to stabilize one'
+    raise 'Unable to stabilize a scanner'
   end
 end
 
@@ -182,4 +216,4 @@ end
 sub.stabilize_readings
 
 puts "Count: #{sub.stable_beacons.size}"
-puts "Greatest distance: #{sub.scanners.product(sub.scanners).reject { |a, b| a == b }.map { |a, b| [a.position, b.position] }.map { |a, b| (a.x - b.x).abs + (a.y - b.y).abs + (a.z - b.z).abs }.max}"
+puts "Greatest distance: #{sub.scanners.product(sub.scanners).reject { |a, b| a == b }.map { |a, b| [a.position, b.position] }.map { |a, b| a.distance(b) }.max}"
