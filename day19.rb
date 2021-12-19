@@ -15,18 +15,27 @@ Point = Struct.new(:x, :y, :z) do
     Point.new(x - other.x, y - other.y, z - other.z)
   end
 
+  def to_s
+    "[#{x}, #{y}, #{z}]"
+  end
+
   def self.root
     Point.new(0, 0, 0)
   end
 end
 
 class Scanner
-  attr_accessor :rotation
+  attr_accessor :rotation, :position
   attr_reader :beacons
 
   def initialize(beacons)
     @beacons = beacons
     @rotation = 0
+    @position = nil
+  end
+
+  def stable?
+    !@position.nil?
   end
 
   def beacons_relative_to(point)
@@ -88,33 +97,32 @@ class Submarine
   end
 
   def stabilize_readings
-    raise 'Already stable' if @scanners.is_a? Hash
+    raise 'Already stable' if @scanners.all?(&:stable?)
 
     to_stabilize = @scanners.dup
-    stabilized = {}
+    stabilized = []
 
-    stabilized[Point.root] = to_stabilize.shift
+    stabilized << to_stabilize.shift.tap { |s| s.position = Point.root }
 
     puts "Stabilizing #{to_stabilize.size} scanners"
 
     until to_stabilize.empty?
-      point, scanner = stabilize_one(stabilized, to_stabilize)
-      stabilized[point] = scanner
-
+      scanner = stabilize_one(stabilized, to_stabilize)
+      stabilized << scanner
       to_stabilize.delete(scanner)
 
-      puts "Stabilized #{point} => #{scanner}, remaining: #{to_stabilize.size}"
+      puts "Stabilized #{scanner} on #{scanner.position}, remaining: #{to_stabilize.size}"
     end
 
     @scanners = stabilized
   end
 
-  def stabile_beacons
-    stabilize_readings unless @scanners.is_a? Hash
+  def stable_beacons
+    stabilize_readings unless @scanners.all?(&:stable?)
 
     beacons = Set.new
-    @scanners.each do |point, scanner|
-      scanner.beacons_relative_to(point).each { |beacon| beacons << beacon }
+    @scanners.each do |scanner|
+      scanner.beacons_relative_to(scanner.position).each { |beacon| beacons << beacon }
     end
     beacons
   end
@@ -123,8 +131,8 @@ class Submarine
 
   def stabilize_one(stabilized, to_stabilize)
     to_stabilize.each do |scanner|
-      stabilized.each do |source_point, source|
-        source_beacons = source.beacons_relative_to(source_point)
+      stabilized.each do |source|
+        source_beacons = source.beacons_relative_to(source.position)
 
         source_beacons.each do |point|
           48.times do |rotation|
@@ -136,7 +144,8 @@ class Submarine
               test_beacons = scanner.beacons_relative_to(mid)
               next unless (test_beacons & source_beacons).size >= 12 # Base on a large number to be on the safe side
 
-              return mid, scanner
+              scanner.position = mid
+              return scanner
             end
           end
         end
@@ -172,6 +181,5 @@ end
 
 sub.stabilize_readings
 
-puts "Count: #{sub.stabile_beacons.size}"
-
-puts "Greatest distance: #{sub.scanners.keys.product(sub.scanners.keys).reject { |a, b| a == b }.map { |a, b| (a.x - b.x).abs + (a.y - b.y).abs + (a.z - b.z).abs }.max}"
+puts "Count: #{sub.stable_beacons.size}"
+puts "Greatest distance: #{sub.scanners.product(sub.scanners).reject { |a, b| a == b }.map { |a, b| [a.position, b.position] }.map { |a, b| (a.x - b.x).abs + (a.y - b.y).abs + (a.z - b.z).abs }.max}"
